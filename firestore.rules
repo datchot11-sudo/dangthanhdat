@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: products
+    // Document ID: auto-generated
+    // Fields: name (string), description (string), price (number), category (string), imageUrl (string), stock (int), createdAt (timestamp)
+    //
+    // Collection: categories
+    // Document ID: auto-generated
+    // Fields: name (string), slug (string)
+    //
+    // Collection: articles
+    // Document ID: auto-generated
+    // Fields: title (string), content (string), imageUrl (string), author (string), createdAt (timestamp)
+    //
+    // Collection: users
+    // Document ID: userId (auth.uid)
+    // Fields: name (string), email (string), role (string: 'admin' | 'user')
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "datchot11@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidProduct(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.price is number && data.price >= 0 &&
+             data.category is string &&
+             data.imageUrl is string && data.imageUrl.matches("^https?://.*");
+    }
+
+    function isValidArticle(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 300 &&
+             data.content is string && data.content.size() > 0 &&
+             data.imageUrl is string && data.imageUrl.matches("^https?://.*");
+    }
+
+    function isValidUser(data) {
+      return data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             data.role in ['admin', 'user'];
+    }
+
+    // Rules
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidProduct(request.resource.data);
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /articles/{articleId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidArticle(request.resource.data);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && 
+                      (request.resource.data.role == 'user' || isAdmin());
+      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) &&
+                      (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
